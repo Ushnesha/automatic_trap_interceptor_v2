@@ -12,7 +12,7 @@ GPIO Pinout:
   ENB (GPIO 13)  → PWM Motor B speed
 """
 
-import RPi.GPIO as GPIO
+from gpiozero import DigitalOutputDevice, PWMLED
 import time
 
 
@@ -35,16 +35,16 @@ class RealMotors:
         self.ENA = 12   # PWM Motor A (speed)
         self.ENB = 13   # PWM Motor B (speed)
 
-        # Setup GPIO
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup([self.IN1, self.IN2, self.IN3, self.IN4], GPIO.OUT)
-        GPIO.setup([self.ENA, self.ENB], GPIO.OUT)
+        # Setup GPIO using gpiozero
+        self.in1 = DigitalOutputDevice(self.IN1)
+        self.in2 = DigitalOutputDevice(self.IN2)
+        self.in3 = DigitalOutputDevice(self.IN3)
+        self.in4 = DigitalOutputDevice(self.IN4)
+        self.pwm_a = PWMLED(self.ENA, frequency=1000)
+        self.pwm_b = PWMLED(self.ENB, frequency=1000)
 
-        # PWM for speed control (1000 Hz frequency)
-        self.pwm_a = GPIO.PWM(self.ENA, 1000)
-        self.pwm_b = GPIO.PWM(self.ENB, 1000)
-        self.pwm_a.start(0)
-        self.pwm_b.start(0)
+        self.pwm_a.value = 0
+        self.pwm_b.value = 0
 
         print(f"[MOTOR] Real L298N motors initialized")
         print(f"[MOTOR] Max speed: {settings.CAN_MAX_SPEED} m/s")
@@ -95,31 +95,31 @@ class RealMotors:
     def _apply_velocity(self, velocity):
         """Convert velocity to PWM signals for motors"""
         max_speed = self.S.CAN_MAX_SPEED
-        duty = abs(velocity) / max_speed * 100
-        duty = max(0, min(100, duty))
+        duty = abs(velocity) / max_speed
+        duty = max(0.0, min(1.0, duty))
 
         if velocity > 0.1:
             # Strafe right: Motor A forward, Motor B backward
-            GPIO.output(self.IN1, GPIO.HIGH)
-            GPIO.output(self.IN2, GPIO.LOW)
-            GPIO.output(self.IN3, GPIO.LOW)
-            GPIO.output(self.IN4, GPIO.HIGH)
+            self.in1.on()
+            self.in2.off()
+            self.in3.off()
+            self.in4.on()
         elif velocity < -0.1:
             # Strafe left: Motor A backward, Motor B forward
-            GPIO.output(self.IN1, GPIO.LOW)
-            GPIO.output(self.IN2, GPIO.HIGH)
-            GPIO.output(self.IN3, GPIO.HIGH)
-            GPIO.output(self.IN4, GPIO.LOW)
+            self.in1.off()
+            self.in2.on()
+            self.in3.on()
+            self.in4.off()
         else:
             # Stop all motors
-            GPIO.output(self.IN1, GPIO.LOW)
-            GPIO.output(self.IN2, GPIO.LOW)
-            GPIO.output(self.IN3, GPIO.LOW)
-            GPIO.output(self.IN4, GPIO.LOW)
-            duty = 0
+            self.in1.off()
+            self.in2.off()
+            self.in3.off()
+            self.in4.off()
+            duty = 0.0
 
-        self.pwm_a.ChangeDutyCycle(duty)
-        self.pwm_b.ChangeDutyCycle(duty)
+        self.pwm_a.value = duty
+        self.pwm_b.value = duty
 
     def center(self):
         """Reset to center position"""
@@ -141,9 +141,13 @@ class RealMotors:
 
     def cleanup(self):
         """Cleanup GPIO on exit"""
-        self.pwm_a.stop()
-        self.pwm_b.stop()
-        GPIO.cleanup()
+        self.pwm_a.close()
+        self.pwm_b.close()
+        self.in1.close()
+        self.in2.close()
+        self.in3.close()
+        self.in4.close()
+        print("[MOTOR] GPIO cleaned up")
 
     @property
     def vx(self):
