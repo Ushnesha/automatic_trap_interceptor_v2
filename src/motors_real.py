@@ -104,12 +104,14 @@ class RealMotors:
             self.in2.off()
             self.in3.off()
             self.in4.on()
+            direction = "RIGHT"
         elif velocity < -0.1:
             # Strafe left: Motor A backward, Motor B forward
             self.in1.off()
             self.in2.on()
             self.in3.on()
             self.in4.off()
+            direction = "LEFT"
         else:
             # Stop all motors
             self.in1.off()
@@ -117,9 +119,12 @@ class RealMotors:
             self.in3.off()
             self.in4.off()
             duty = 0.0
+            direction = "STOP"
 
         self.pwm_a.value = duty
         self.pwm_b.value = duty
+
+        print(f"[MOTOR] {direction} velocity={velocity:.2f} duty={duty:.2f} IN1={self.in1.value} IN2={self.in2.value} IN3={self.in3.value} IN4={self.in4.value}")
 
     def center(self):
         """Reset to center position"""
