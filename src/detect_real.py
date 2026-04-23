@@ -1,50 +1,59 @@
 """
 src/detect_real.py
-Real orange ball detection using OpenCV for Raspberry Pi.
-Replaces src/detect.py for real hardware deployment.
+Object detection using ArduCAM TOF depth data.
 
-Uses HSV color space filtering with morphological operations.
+Instead of HSV color filtering, uses depth thresholding to find objects.
+Objects are detected as connected regions within expected depth range.
 """
 
 import cv2
 import numpy as np
+from scipy import ndimage
 
 
 class RealDetector:
-    """Real orange ball detection using OpenCV and HSV"""
+    """TOF depth-based object detection"""
 
     def __init__(self, settings):
         self.S = settings
-        self.lower = np.array(settings.HSV_LOWER, dtype=np.uint8)
-        self.upper = np.array(settings.HSV_UPPER, dtype=np.uint8)
-        print(f"[DETECT] HSV range: {settings.HSV_LOWER} -> {settings.HSV_UPPER}")
+        print(f"[DETECT] TOF depth range: {settings.TOF_OBJECT_DEPTH:.1f}m ±{settings.TOF_DEPTH_TOLERANCE:.1f}m")
+        print(f"[DETECT] Valid depth: {settings.TOF_MIN_DEPTH:.1f}m - {settings.TOF_MAX_DEPTH:.1f}m")
 
-    def find_object(self, frame):
+    def find_object(self, depth_frame):
         """
-        Find orange ball in real camera frame.
+        Find object in TOF depth frame.
         Returns (cx, cy) pixel center or None.
+
+        Args:
+            depth_frame: numpy array (H, W) with depth in meters
+
+        Returns:
+            (cx, cy) or None
         """
-        if frame is None:
+        if depth_frame is None:
             return None
 
-        # Convert BGR to HSV
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        h, w = depth_frame.shape
+        
+        # Filter: keep only valid depth values in expected range
+        min_d = self.S.TOF_OBJECT_DEPTH - self.S.TOF_DEPTH_TOLERANCE
+        max_d = self.S.TOF_OBJECT_DEPTH + self.S.TOF_DEPTH_TOLERANCE
+        
+        mask = (depth_frame >= min_d) & (depth_frame <= max_d)
+        mask = mask.astype(np.uint8) * 255
 
-        # Create mask based on HSV range
-        mask = cv2.inRange(hsv, self.lower, self.upper)
-
-        # Morphological operations to reduce noise
+        # Morphological cleanup
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
-        # Find contours
+        # Find connected components
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         if not contours:
             return None
 
-        # Find largest contour (ball)
+        # Find largest contour (object)
         largest = max(contours, key=cv2.contourArea)
 
         # Check minimum area
@@ -61,24 +70,44 @@ class RealDetector:
 
         return (cx, cy)
 
-    def find_object_fast(self, frame):
+    def find_object_by_proximity(self, depth_frame):
         """
-        Fast BGR-based detection (alternative, no HSV conversion).
-        Use if performance is critical.
+        Alternative: find closest object (minimum depth).
+        Use if objects are well-separated from background.
         """
-        if frame is None:
+        if depth_frame is None:
             return None
 
-        # Extract BGR channels
-        b = frame[:, :, 0].astype(np.int16)
-        g = frame[:, :, 1].astype(np.int16)
-        r = frame[:, :, 2].astype(np.int16)
+        # Filter invalid/zero depth
+        valid = (depth_frame > self.S.TOF_MIN_DEPTH) & (depth_frame < self.S.TOF_MAX_DEPTH)
+        
+        if not np.any(valid):
+            return None
 
-        # Orange detection in BGR space
-        orange_mask = (r > 150) & (g > 60) & (g < 180) & (b < 80) & (r > g + 40)
+        # Find closest pixels
+        min_depth = depth_frame[valid].min()
+        closest_mask = (depth_frame == min_depth) & valid
 
-        ys, xs = np.where(orange_mask)
+        # Extract coordinates
+        ys, xs = np.where(closest_mask)
         if len(xs) < self.S.MIN_OBJECT_AREA:
             return None
 
         return int(np.mean(xs)), int(np.mean(ys))
+
+    def get_depth_stats(self, depth_frame):
+        """Debug: get depth statistics for tuning"""
+        if depth_frame is None:
+            return None
+        
+        valid = (depth_frame > 0) & (depth_frame < 10)
+        if not np.any(valid):
+            return {"mean": 0, "min": 0, "max": 0}
+        
+        valid_depth = depth_frame[valid]
+        return {
+            "mean": float(np.mean(valid_depth)),
+            "min": float(np.min(valid_depth)),
+            "max": float(np.max(valid_depth)),
+            "std": float(np.std(valid_depth))
+        }

@@ -15,16 +15,18 @@ class SimSettings:
     ARENA_W  = 3.0
     ARENA_H  = 2.5
 
-    # ── Pi Camera v2 ──────────────────────────────────────────────
-    FRAME_WIDTH  = 640
-    FRAME_HEIGHT = 480
-    CAM_WIDTH    = 640
-    CAM_HEIGHT   = 480
+    # ── ArduCAM TOF Camera ────────────────────────────────────────
+    FRAME_WIDTH  = 320
+    FRAME_HEIGHT = 240
+    CAM_WIDTH    = 320
+    CAM_HEIGHT   = 240
 
-    # ── HSV detection range (orange ball) ─────────────────────────
-    HSV_LOWER = (3,  70, 70)
-    HSV_UPPER = (30, 255, 255)
-    MIN_OBJECT_AREA = 30
+    # ── TOF depth detection ───────────────────────────────────────
+    TOF_MIN_DEPTH = 0.1    # meters — minimum distance
+    TOF_MAX_DEPTH = 2.0    # meters — maximum distance
+    TOF_OBJECT_DEPTH = 0.5 # meters — expected depth range for objects
+    TOF_DEPTH_TOLERANCE = 0.3  # meters — ±tolerance around expected depth
+    MIN_OBJECT_AREA = 50   # pixels² — minimum cluster size
 
     # ── Physics ───────────────────────────────────────────────────
     GRAVITY          = 9.81    # m/s²
