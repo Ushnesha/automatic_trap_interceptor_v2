@@ -2,125 +2,100 @@
 src/camera_real.py
 Real ArduCAM TOF camera capture for Raspberry Pi 5.
 
-Supports TOF depth sensing at 320x240 resolution via CSI port.
-Outputs raw depth data (distance in mm from camera lens).
+Uses ArduCAM SDK (ArducamDepthCamera) for native depth sensing via CSI port.
+Outputs raw depth data (distance in meters from camera lens).
 """
 
 import numpy as np
-import time
+import sys
+import os
+
+arducam_path = os.path.expanduser('~/Arducam_tof_camera-main')
+if arducam_path not in sys.path:
+    sys.path.insert(0, arducam_path)
+
+try:
+    import ArducamDepthCamera as ac
+    ARDUCAM_AVAILABLE = True
+except ImportError:
+    ARDUCAM_AVAILABLE = False
 
 
 class RealCamera:
-    """Real ArduCAM TOF depth camera via CSI"""
+    """Real ArduCAM TOF depth camera via CSI using ArducamDepthCamera SDK"""
 
     def __init__(self, settings):
         self.S = settings
-        self.cap = None
+        self.cam = None
+        self.ac = ac if ARDUCAM_AVAILABLE else None
+
+        if not ARDUCAM_AVAILABLE:
+            raise RuntimeError("[CAMERA] ArducamDepthCamera SDK not found. Check ~/Arducam_tof_camera-main")
+
         self._init_camera()
 
-        if self.cap is None:
-            raise RuntimeError("[CAMERA] Failed to initialize TOF camera")
+        if self.cam is None:
+            raise RuntimeError("[CAMERA] Failed to initialize ArduCAM TOF camera")
 
         # Warm up camera (discard first frames)
         for _ in range(5):
-            self.cap.read()
+            self.get_depth_frame()
 
-        print("[CAMERA] ArduCAM TOF initialized via CSI (320x240 @ 10fps)")
+        info = self.cam.getCameraInfo()
+        print(f"[CAMERA] ArduCAM TOF initialized via CSI ({info.width}x{info.height})")
 
     def _init_camera(self):
-        """Initialize ArduCAM TOF camera via CSI port"""
+        """Initialize ArduCAM TOF camera using ArducamDepthCamera SDK"""
         try:
-            import cv2
-            from picamera2 import Picamera2
-            
-            # Use Picamera2 for CSI camera on Pi 5
-            self.picam2 = Picamera2()
-            config = self.picam2.create_preview_configuration(
-                main={"format": "RGB888", "size": (self.S.FRAME_WIDTH, self.S.FRAME_HEIGHT)}
-            )
-            self.picam2.configure(config)
-            self.picam2.start()
-            
-            self.use_picamera2 = True
-            print("[CAMERA] TOF camera initialized via CSI (Picamera2)")
-            return
-            
-        except ImportError:
-            print("[CAMERA] Picamera2 not available, trying libcamera...")
-            self._init_libcamera()
-        except Exception as e:
-            print(f"[CAMERA] Picamera2 init failed: {e}")
-            self._init_libcamera()
+            self.cam = self.ac.ArducamCamera()
 
-    def _init_libcamera(self):
-        """Fallback: Initialize via libcamera GStreamer pipeline"""
-        try:
-            import cv2
-            
-            # libcamera pipeline for TOF depth output
-            pipeline = (
-                "libcamerasrc camera-name=arducam_tof ! "
-                "video/x-raw,width=320,height=240,format=BGR ! "
-                "videoconvert ! "
-                "video/x-raw,format=BGR ! appsink"
-            )
-            
-            self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
-            
-            if self.cap.isOpened():
-                self.use_picamera2 = False
-                print("[CAMERA] TOF camera initialized via libcamera")
+            ret = self.cam.open(self.ac.Connection.CSI, 0)
+            if ret != 0:
+                print(f"[CAMERA] Failed to open camera. Error code: {ret}")
+                self.cam = None
                 return
-                
-        except Exception as e:
-            print(f"[CAMERA] libcamera init failed: {e}")
 
-        self.cap = None
-        self.use_picamera2 = False
+            ret = self.cam.start(self.ac.FrameType.DEPTH)
+            if ret != 0:
+                print(f"[CAMERA] Failed to start camera. Error code: {ret}")
+                self.cam.close()
+                self.cam = None
+                return
+
+            self.cam.setControl(self.ac.Control.RANGE, 4000)
+            print("[CAMERA] ArduCAM TOF SDK initialized successfully")
+
+        except Exception as e:
+            print(f"[CAMERA] Failed to initialize camera: {e}")
+            self.cam = None
 
     def get_depth_frame(self):
         """
-        Capture depth frame from TOF camera via CSI.
+        Capture depth frame from ArduCAM TOF camera.
         Returns numpy array of shape (H, W) with depth in meters.
         Returns None on failure.
         """
-        if self.use_picamera2:
-            try:
-                frame = self.picam2.capture_array()
-                if frame is None:
-                    return None
-                
-                # Convert RGB to depth (depends on camera output format)
-                # ArduCAM TOF typically outputs depth in first channel or as grayscale
-                if frame.ndim == 3 and frame.shape[2] == 3:
-                    # Use first channel as depth (in mm), convert to meters
-                    depth = frame[:, :, 0].astype(np.float32) / 1000.0
-                else:
-                    depth = frame.astype(np.float32) / 1000.0
-                
-                return depth
-                
-            except Exception as e:
-                print(f"[CAMERA] Picamera2 capture failed: {e}")
+        if self.cam is None:
+            return None
+
+        try:
+            frame = self.cam.requestFrame(2000)
+
+            if frame is None:
                 return None
 
-        else:
-            # Fallback to OpenCV
-            if self.cap is None:
-                return None
+            if isinstance(frame, self.ac.DepthData):
+                depth_mm = frame.depth_data
+                depth_m = depth_mm.astype(np.float32) / 1000.0
+                self.cam.releaseFrame(frame)
+                return depth_m
 
-            ret, frame = self.cap.read()
-            if not ret:
-                print("[CAMERA] Failed to read depth frame")
-                return None
+            self.cam.releaseFrame(frame)
+            return None
 
-            # Convert BGR to depth (first channel)
-            if frame.ndim == 3:
-                depth = frame[:, :, 0].astype(np.float32) / 1000.0
-            else:
-                depth = frame.astype(np.float32) / 1000.0
-
-            return depth
+        except Exception as e:
+            print(f"[CAMERA] Failed to capture depth frame: {e}")
+            return None
 
     def get_frame(self):
         """Wrapper for compatibility — returns depth frame"""
@@ -134,12 +109,10 @@ class RealCamera:
 
     def cleanup(self):
         """Release camera resources"""
-        if self.use_picamera2:
+        if self.cam is not None:
             try:
-                self.picam2.stop()
-                print("[CAMERA] Picamera2 stopped")
-            except:
-                pass
-        elif self.cap is not None:
-            self.cap.release()
-            print("[CAMERA] TOF camera released")
+                self.cam.stop()
+                self.cam.close()
+                print("[CAMERA] ArduCAM TOF stopped and closed")
+            except Exception as e:
+                print(f"[CAMERA] Error during cleanup: {e}")
