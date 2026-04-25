@@ -57,12 +57,12 @@ class SimSettings:
 
     # ── L298N + Mecanum motors ─────────────────────────────────────
     CAN_MAX_SPEED = 0.8    # m/s  — must exceed max needed speed
-    CAN_ACCEL     = 1.0   # m/s²
+    CAN_ACCEL     = 4.0   # m/s²
     CAN_DECEL     = 18.0   # m/s²
-    POSITION_TOL  = 0.04   # m — dead zone
+    POSITION_TOL  = 0.01   # m — dead zone
 
     # ── PID gains ─────────────────────────────────────────────────
-    PID_KP = 1.2
+    PID_KP = 3
     PID_KI = 0.05
     PID_KD = 0.1
 

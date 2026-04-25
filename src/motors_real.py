@@ -111,10 +111,10 @@ class RealMotors:
         duty = abs(velocity) / max_speed
         duty = max(0.0, min(1.0, duty))
 
-        if velocity > 0.01:
+        if velocity > 0.02:
             self._strafe_right(duty)
             direction = "RIGHT"
-        elif velocity < -0.01:
+        elif velocity < -0.02:
             self._strafe_left(duty)
             direction = "LEFT"
         else:
