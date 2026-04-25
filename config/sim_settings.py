@@ -18,8 +18,11 @@ class SimSettings:
     # ── ArduCAM TOF Camera ────────────────────────────────────────
     FRAME_WIDTH  = 320
     FRAME_HEIGHT = 240
+    FOCAL_LENGTH_X = 250.0 
+    FOCAL_LENGTH_Y = 250.0
     CAM_WIDTH    = 320
     CAM_HEIGHT   = 240
+    CAMERA_HEIGHT_METERS = 1.2
 
     # ── TOF depth detection ───────────────────────────────────────
     TOF_MIN_DEPTH = 0.1    # meters — minimum distance
@@ -53,15 +56,15 @@ class SimSettings:
     CATCH_BONUS_X = 0.10
 
     # ── L298N + Mecanum motors ─────────────────────────────────────
-    CAN_MAX_SPEED = 4.5    # m/s  — must exceed max needed speed
-    CAN_ACCEL     = 22.0   # m/s²
+    CAN_MAX_SPEED = 0.8    # m/s  — must exceed max needed speed
+    CAN_ACCEL     = 1.0   # m/s²
     CAN_DECEL     = 18.0   # m/s²
     POSITION_TOL  = 0.04   # m — dead zone
 
     # ── PID gains ─────────────────────────────────────────────────
-    PID_KP = 7.0
-    PID_KI = 0.1
-    PID_KD = 1.0
+    PID_KP = 1.2
+    PID_KI = 0.05
+    PID_KD = 0.1
 
     # ── Kalman filter ──────────────────────────────────────────────
     KALMAN_Q = 0.05   # process noise

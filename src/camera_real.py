@@ -1,6 +1,3 @@
-"""
-src/camera_real.py - Fixed with confidence filtering
-"""
 import numpy as np
 import ArducamDepthCamera as ac
 
@@ -8,12 +5,17 @@ class RealCamera:
     def __init__(self, settings):
         self.S = settings
         self.cam = None
+        self.frame_count = 0
+        self.valid_count = 0
         self._init_camera()
         if self.cam is None:
-            raise RuntimeError("[CAMERA] Failed to initialize camera")
-        # Warmup
-        for _ in range(5):
-            self.get_depth_frame()
+            raise RuntimeError("[CAMERA] Failed to initialize")
+        print("[CAMERA] Warming up sensor...")
+        for i in range(10):
+            f = self.get_frame()
+            if f is not None:
+                valid = np.sum(f > 0)
+                print(f"[CAMERA] Warmup {i+1}: {valid} valid pixels")
         print("[CAMERA] ArduCAM TOF ready!")
 
     def _init_camera(self):
@@ -29,30 +31,42 @@ class RealCamera:
             print(f"[CAMERA] Error: {e}")
             self.cam = None
 
-    def get_depth_frame(self):
+    def get_frame(self):
         if self.cam is None:
             return None
         try:
             frame = self.cam.requestFrame(2000)
             if frame is None:
                 return None
+
             depth_mm = np.array(frame.depth_data).astype(np.float32)
-            confidence = np.array(frame.confidence_data).astype(np.float32)
+            conf = np.array(frame.confidence_data).astype(np.float32)
             self.cam.releaseFrame(frame)
 
-            # Filter low confidence pixels
-            bad = (confidence < 30) | (depth_mm < 100) | (depth_mm > 2000)
+            self.frame_count += 1
+
+            # Less aggressive filtering - keep more pixels
+            bad = (depth_mm < 50) | (depth_mm > 5000)
             depth_mm[bad] = 0
 
             # Convert to meters
             depth_m = depth_mm / 1000.0
+
+            valid = np.sum(depth_m > 0)
+            self.valid_count += 1
+
+            if self.frame_count % 30 == 0:
+                rate = self.valid_count / self.frame_count * 100
+                print(f"[CAMERA] Frames: {self.frame_count}, Valid: {self.valid_count} ({rate:.1f}%), Last frame: {valid} pixels")
+
             return depth_m
+
         except Exception as e:
-            print(f"[CAMERA] Capture error: {e}")
+            print(f"[CAMERA] Error: {e}")
             return None
 
-    def get_frame(self):
-        return self.get_depth_frame()
+    def get_depth_frame(self):
+        return self.get_frame()
 
     def world_to_pixel_x(self, world_x):
         ppm_x = self.S.FRAME_WIDTH / self.S.ARENA_W
@@ -63,6 +77,7 @@ class RealCamera:
             try:
                 self.cam.stop()
                 self.cam.close()
-                print("[CAMERA] ArduCAM TOF stopped and closed")
+                print("[CAMERA] Stopped. Valid frame rate: "
+                      f"{self.valid_count/max(self.frame_count,1)*100:.1f}%")
             except Exception as e:
                 print(f"[CAMERA] Cleanup error: {e}")

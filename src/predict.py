@@ -50,68 +50,57 @@ class Predictor:
         Feed a camera detection (pixel cx, cy).
         Converts to world meters and runs Kalman update.
         """
-        cx, cy = position
+        cx, cy, depth = position
         S = self.S
 
         # Pixel → world meters
-        wx = (cx / self._ppm_x) - S.ARENA_W / 2
-        wz = S.ARENA_H - (cy / self._ppm_z)
+        wx = (cx - S.FRAME_WIDTH/2) * (depth / S.FOCAL_LENGTH_X)
+        wy = S.CAMERA_HEIGHT_METERS - ((cy - S.FRAME_HEIGHT/2) * (depth / S.FOCAL_LENGTH_Y))
+        wz = depth
 
-        self._history.append({'x': wx, 'z': wz, 't': time.time()})
+        self._history.append({'x': wx, 'y': wy, 'z': wz, 't': time.time()})
 
         # Kalman update
-        self._kalman_update(wx, wz)
+        self._kalman_update(wx, wy, wz)
         self._updates += 1
 
     def get_predicted_landing_x(self):
-        """
-        Returns predicted landing X in PIXEL coordinates.
-        Same return type as original predict.py.
-        """
-        if self._updates < self.S.MIN_POINTS_TO_PREDICT:
-            return None
-        if self._kx is None:
+        if self._updates < self.S.MIN_POINTS_TO_PREDICT or self._kx is None:
             return None
 
-        x0  = float(self._kx[0, 0])
-        z0  = float(self._kx[1, 0])
-        vx  = float(self._kx[2, 0])
-        vz  = float(self._kx[3, 0])
-        g   = self.S.GRAVITY
+        # Unpack Kalman states (Position and Velocity)
+        # x, y, z are positions; vx, vy, vz are velocities
+        x0, y0, z0, vx, vy, vz = self._kx.flatten()
+        g = self.S.GRAVITY
 
-        if z0 <= self.S.FLOOR_Y + 0.05:
+        # If the ball is already on the floor, don't predict
+        if y0 <= self.S.FLOOR_Y + 0.02:
             return self._last_x
 
-        # Solve: z0 + vz*t - 0.5*g*t² = 0
-        a =  0.5 * g
-        b = -vz
-        c = -z0
-        disc = b*b - 4*a*c
+        # 1. Solve for Time to Impact (landing_t)
+        # Equation: y0 + vy*t - 0.5*g*t^2 = 0 (Floor level)
+        # This is a standard quadratic: at^2 + bt + c = 0
+        a = -0.5 * g
+        b = vy
+        c = y0 - self.S.FLOOR_Y
 
+        disc = b**2 - 4*a*c
         if disc < 0:
             return self._last_x
 
-        t1 = (-b + math.sqrt(disc)) / (2*a)
-        t2 = (-b - math.sqrt(disc)) / (2*a)
+        # We want the positive root (future time)
+        t_impact = (-b - math.sqrt(disc)) / (2*a)
 
-        landing_t = None
-        for t in [t1, t2]:
-            if t > 0.01:
-                if landing_t is None or t < landing_t:
-                    landing_t = t
+        # 2. Calculate Landing X and Z
+        # Project forward using linear velocity
+        landing_x_m = x0 + vx * t_impact
+        landing_z_m = z0 + vz * t_impact # Where it hits relative to the can's depth
 
-        if landing_t is None:
-            return self._last_x
-
-        # Landing X in world meters
-        landing_x_m = x0 + vx * landing_t
-
-        # Clamp to arena
-        hw = self.S.ARENA_W / 2
-        landing_x_m = max(-hw, min(hw, landing_x_m))
-
-        # Convert back to pixel X (same as original)
+        # 3. Convert Landing X back to pixels for motor control
+        # Map meters to the motor's coordinate system
         landing_x_px = (landing_x_m + self.S.ARENA_W/2) * self._ppm_x
+        
+        # Clamp to frame
         landing_x_px = max(0.0, min(float(self.S.FRAME_WIDTH), landing_x_px))
 
         self._last_x = landing_x_px
@@ -124,45 +113,64 @@ class Predictor:
 
     # ── Kalman internals ──────────────────────────────────────────
 
-    def _kalman_update(self, wx, wz):
+    def _kalman_update(self, wx, wy, wz):
         dt = self._dt
         g  = self.S.GRAVITY
 
-        # State transition
+        # 1. State Transition Matrix (F)
+        # [x, y, z, vx, vy, vz]
         F = np.array([
-            [1, 0, dt,  0],
-            [0, 1,  0, dt],
-            [0, 0,  1,  0],
-            [0, 0,  0,  1],
+            [1, 0, 0, dt, 0,  0],  # x = x + vx*dt
+            [0, 1, 0, 0,  dt, 0],  # y = y + vy*dt
+            [0, 0, 1, 0,  0,  dt], # z = z + vz*dt
+            [0, 0, 0, 1,  0,  0],  # vx = vx
+            [0, 0, 0, 0,  1,  0],  # vy = vy
+            [0, 0, 0, 0,  0,  1],  # vz = vz
         ], dtype=float)
 
-        # Gravity input
-        B = np.array([[0], [0.5*g*dt*dt], [0], [g*dt]])
+        # 2. Gravity Control Input (B)
+        # Only the vertical axis (y) and its velocity (vy) are affected by g
+        # y = y - 0.5*g*dt^2
+        # vy = vy - g*dt
+        B = np.zeros((6, 1))
+        B[1, 0] = 0.5 * g * dt**2
+        B[4, 0] = g * dt
 
-        # Observation (see x and z)
-        H = np.array([[1,0,0,0],[0,1,0,0]], dtype=float)
+        # 3. Observation Matrix (H)
+        # We observe x, y, and z positions directly from the sensor
+        H = np.array([
+            [1, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0],
+            [0, 0, 1, 0, 0, 0]
+        ], dtype=float)
 
+        # 4. Noise Covariance Matrices
         q = self.S.KALMAN_Q
-        Q = np.diag([q*0.1, q*0.1, q, q])
+        # Lower noise for position, higher for velocity estimation
+        Q = np.diag([q*0.1, q*0.1, q*0.1, q, q, q])
 
         r = self.S.KALMAN_R
-        R = np.eye(2) * r
+        R = np.eye(3) * r
 
-        z = np.array([[wx], [wz]])
+        # 5. Measurement Vector
+        z = np.array([[wx], [wy], [wz]])
 
+        # 6. Initialization
         if self._kx is None:
-            # Initialize on first detection
-            self._kx = np.array([[wx],[wz],[0.0],[0.0]])
-            self._kP = np.eye(4) * 0.5
+            # Initial state: positions from camera, velocities start at 0
+            self._kx = np.array([[wx], [wy], [wz], [0.0], [0.0], [0.0]])
+            self._kP = np.eye(6) * 1.0
             return
 
-        # Predict
-        xp = F @ self._kx - B          # minus = gravity pulls down
+        # 7. Predict Phase
+        # xp = F*x - B (pulling down on y)
+        xp = F @ self._kx - B
         Pp = F @ self._kP @ F.T + Q
 
-        # Update
-        y  = z - H @ xp
-        S_ = H @ Pp @ H.T + R
-        K  = Pp @ H.T @ np.linalg.inv(S_)
-        self._kx = xp + K @ y
-        self._kP = (np.eye(4) - K @ H) @ Pp
+        # 8. Update Phase (Correction)
+        y_err = z - H @ xp
+        S_inv = np.linalg.inv(H @ Pp @ H.T + R)
+        K = Pp @ H.T @ S_inv
+        
+        self._kx = xp + K @ y_err
+        self._kP = (np.eye(6) - K @ H) @ Pp

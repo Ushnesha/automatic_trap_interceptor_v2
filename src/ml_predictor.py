@@ -63,33 +63,61 @@ class MLPredictor:
         self._last_x = None
 
     def add_point(self, position):
-        cx, cy = position
-        # Reject large jumps (noise filter)
-        if len(self.history) >= 2:
+        cx, cy, depth = position
+        # 2. Reject noise/jumps
+        if len(self.history) >= 1:
             prev = self.history[-1]
-            dist = ((cx-prev['x'])**2 + (cy-prev['y'])**2)**0.5
-            if dist > 100:
+            # Check pixel jump (2D)
+            pixel_dist = ((cx - prev['x'])**2 + (cy - prev['y'])**2)**0.5
+            # Check depth jump (1D)
+            depth_jump = abs(depth - prev['z'])
+            
+            # If the object jumped more than 100 pixels OR more than 0.5 meters 
+            # in a single frame, it's likely sensor noise.
+            if pixel_dist > 100 or depth_jump > 0.5:
                 return
-        self.history.append({'x': cx, 'y': cy, 't': time.time()})
+
+        # 3. Store EVERYTHING including depth (z)
+        self.history.append({
+            'x': cx, 
+            'y': cy, 
+            'z': depth, # Important for projectile math!
+            't': time.time()
+        })
 
     def get_predicted_landing_x(self):
-        """Use ML model if available, else Kalman fallback."""
-        if self.model is None or len(self.history) < 3:
-            return self._kalman_fallback()
+        if len(self.history) < 3:
+            return None
 
-        features = self._build_features()
-        if features is None:
-            return self._last_x
+        # 1. Get the most recent 3 points
+        p1, p2, p3 = list(self.history)[-3:]
+        
+        # 2. Calculate vertical velocity (Vy) using Depth and Cy
+        # Note: cy is pixels, you must convert to meters first!
+        dt = p3['t'] - p2['t']
+        dy = self.pixels_to_meters_y(p3['y'], p3['z']) - self.pixels_to_meters_y(p2['y'], p2['z'])
+        vy = dy / dt
 
-        try:
-            pred = self.model.predict([features])[0]
-            # Model output is pixel X
-            pred = max(0.0, min(float(self.S.FRAME_WIDTH), float(pred)))
-            self._last_x = pred
-            return pred
-        except Exception as e:
-            print(f"[ML] Prediction error: {e}")
-            return self._kalman_fallback()
+        # 3. Solve for Time to Impact (t_impact)
+        # y(t) = y_start + vy*t - 0.5*g*t^2
+        current_y = self.pixels_to_meters_y(p3['y'], p3['z'])
+        g = 9.81
+        
+        # Quadratic formula for t: (-b - sqrt(b^2 - 4ac)) / 2a
+        # 0 = -0.5g*t^2 + vy*t + current_y
+        discriminant = vy**2 + 2 * g * current_y
+        if discriminant < 0: return None # Physics error
+        
+        t_impact = (vy + np.sqrt(discriminant)) / g
+
+        # 4. Predict where X will be at that time
+        dx = self.pixels_to_meters_x(p3['x'], p3['z']) - self.pixels_to_meters_x(p2['x'], p2['z'])
+        vx = dx / dt
+        
+        predicted_x_meters = self.pixels_to_meters_x(p3['x'], p3['z']) + (vx * t_impact)
+        
+        # 5. Convert back to pixels for the Motor class
+        return self.meters_to_pixels_x(predicted_x_meters)
 
     def _build_features(self):
         """10 (x,y) positions → flat feature vector of length 20."""
