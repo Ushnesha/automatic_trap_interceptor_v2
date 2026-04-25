@@ -1,7 +1,7 @@
 """
 config/sim_settings.py
 All constants for your hardware:
-  Raspberry Pi 4 | Pi Camera | L298N | Mecanum chassis
+Raspberry Pi 4 | Pi Camera | L298N | Mecanum chassis
 """
 
 class SimSettings:
@@ -24,9 +24,9 @@ class SimSettings:
     # ── TOF depth detection ───────────────────────────────────────
     TOF_MIN_DEPTH = 0.1    # meters — minimum distance
     TOF_MAX_DEPTH = 2.0    # meters — maximum distance
-    TOF_OBJECT_DEPTH = 0.5 # meters — expected depth range for objects
-    TOF_DEPTH_TOLERANCE = 0.3  # meters — ±tolerance around expected depth
-    MIN_OBJECT_AREA = 50   # pixels² — minimum cluster size
+    TOF_OBJECT_DEPTH = 1.0 # meters — expected depth range for objects
+    TOF_DEPTH_TOLERANCE = 0.4  # meters — ±tolerance around expected depth
+    MIN_OBJECT_AREA = 1000
 
     # ── Physics ───────────────────────────────────────────────────
     GRAVITY          = 9.81    # m/s²
