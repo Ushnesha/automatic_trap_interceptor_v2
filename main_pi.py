@@ -73,6 +73,9 @@ def main():
         catch_count = 0
         detection_count = 0
         last_status_frame = 0
+        last_detection_time = time.time()
+        is_moving = False
+        active_throw = False
  
         # Main loop
         while True:
@@ -89,37 +92,56 @@ def main():
             # ── DETECT: Find orange ball ──────────────────────────
             # FIX: Track detection attempts and results
             position = detector.find_object(frame)
+            current_time = time.time()
             
-            if position is None:
-                # FIX: Log detection status periodically
-                if frame_count % 30 == 0:
-                    status = detector.get_calibration_status()
-                    if status != "ready":
-                        log.info(f"[DETECT] {status}")
-                    else:
-                        log.debug(f"[DETECT] No object detected in frame {frame_count}")
-            else:
+            if position is not None:
+                # ── WE SEE THE BALL ──
+                if not active_throw:
+                    log.info("NEW THROW DETECTED")
+                    active_throw = True
+
                 detection_count += 1
+                last_detection_time = time.time() 
+                is_moving = True
+                
                 cx, cy, depth = position
                 log.debug(f"[DETECT] Ball at ({cx}, {cy}) Depth: {depth:.2f}m")
  
-                # Collect position for ML training
                 if collector and position:
                     throw_positions.append(position)
  
-                # ── PREDICT: Kalman + ballistic solver ────────────
                 predictor.add_point(position)
                 predicted_x = predictor.get_predicted_landing_x()
  
                 if predicted_x is not None:
                     log.debug(f"[PREDICT] Landing X = {predicted_x:.1f}px")
- 
-                    # ── ACT: Move motors to landing spot ──────────
                     motors.move_to_x(predicted_x)
-                else:
+            
+            else:
+                # ── NO BALL DETECTED (The Fix) ──
+                if active_throw:
+                    time_since_last_seen = current_time - last_detection_time
+
+                    # 1. SUCCESS/FAILURE TIMEOUT: The throw is over
+                    if time_since_last_seen > 3.0:
+                        log.info("THROW COMPLETED: Resetting for next object...")
+                        motors.stop()
+                        motors.reset()      # Sets current_m = 0
+                        predictor.reset()    # Clears Kalman history
+                        active_throw = False # Allow new detection
+                        is_moving = False
                     
-                    motors.stop()
-                    motors.reset()
+                    # 2. MID-AIR PERSISTENCE: Lost sight but still moving to target
+                    elif predictor._last_x is not None:
+                        motors.move_to_x(predictor._last_x)
+
+                # # 2. Periodic Status Logging
+                # if frame_count % 30 == 0:
+                #     status = detector.get_calibration_status()
+                #     if status != "ready":
+                #         log.info(f"[DETECT] {status}")
+                #     else:
+                #         log.debug(f"[DETECT] No object detected in frame {frame_count}")    
  
             # ── Periodic status ───────────────────────────────────
             if frame_count % 30 == 0:

@@ -17,7 +17,7 @@ class RealDetector:
         self.max_object_pixels = 3000      # But not more than 3000
         
         # Distance filter
-        self.MIN_DEPTH = 0.3
+        self.MIN_DEPTH = 0.15
         self.MAX_DEPTH = 2.0
         
         print("[DETECT] === BACKGROUND SUBTRACTION DETECTOR ===")

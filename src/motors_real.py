@@ -106,10 +106,19 @@ class RealMotors:
         self._vx = cmd
         self._apply_velocity(self._vx)
     def _apply_velocity(self, velocity):
-        """Convert velocity to motor commands"""
+        """Convert velocity to motor commands with a minimum power floor"""
         max_speed = self.S.CAN_MAX_SPEED
-        duty = abs(velocity) / max_speed
-        duty = max(0.0, min(1.0, duty))
+        
+        # Calculate raw duty cycle
+        base_duty = abs(velocity) / max_speed
+        
+        # ── THE FIX: MINIMUM STARTING POWER ──
+        # If we want to move, we MUST provide at least ~35% power
+        # otherwise the motors won't overcome friction.
+        if abs(velocity) > 0.02:
+            duty = max(0.35, min(1.0, base_duty))
+        else:
+            duty = 0.0
 
         if velocity > 0.02:
             self._strafe_right(duty)
