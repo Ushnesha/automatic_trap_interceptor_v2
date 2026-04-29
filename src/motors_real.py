@@ -3,10 +3,10 @@
 """
 src/motors_real.py - Using working gpiozero Motor class
 GPIO Pinout:
-  FL: forward=17, backward=18
-  FR: forward=22, backward=23
-  BL: forward=5,  backward=6
-  BR: forward=19, backward=26
+  BL: forward=17, backward=18
+  BR: forward=22, backward=23
+  FR: forward=5,  backward=6
+  FL: forward=19, backward=26
 
 NOTE: rotate_right() from mecanum_gpiozero.py = actual strafe right
       rotate_left()  from mecanum_gpiozero.py = actual strafe left
@@ -27,10 +27,10 @@ class RealMotors:
         self._ppm_x = settings.FRAME_WIDTH / settings.ARENA_W
         self.current_m = 0.0
 
-        self.front_left  = Motor(forward=17, backward=18)
-        self.front_right = Motor(forward=22, backward=23)
-        self.back_left   = Motor(forward=5,  backward=6)
-        self.back_right  = Motor(forward=19, backward=26)
+        self.front_left  = Motor(forward=19, backward=26)
+        self.front_right = Motor(forward=5, backward=6)
+        self.back_right   = Motor(forward=22, backward=23)
+        self.back_left  = Motor(forward=17, backward=18)
 
         self.stop()
         print("[MOTOR] Real motors initialized using gpiozero Motor class")
@@ -41,15 +41,15 @@ class RealMotors:
         """Strafe right - uses rotate_right pattern from working test"""
         self.front_left.forward(speed)
         self.front_right.backward(speed)
-        self.back_left.forward(speed)
-        self.back_right.backward(speed)
+        self.back_left.backward(speed)
+        self.back_right.forward(speed)
 
     def _strafe_left(self, speed):
         """Strafe left - uses rotate_left pattern from working test"""
         self.front_left.backward(speed)
         self.front_right.forward(speed)
-        self.back_left.backward(speed)
-        self.back_right.forward(speed)
+        self.back_left.forward(speed)
+        self.back_right.backward(speed)
 
     def stop(self):
         self.front_left.stop()

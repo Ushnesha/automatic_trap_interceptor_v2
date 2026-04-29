@@ -12,12 +12,12 @@ class RealDetector:
         self.calib_start_time = time.time()
         
         # Background subtraction thresholds
-        self.depth_diff_threshold = 0.08   # 8cm closer = new object
+        self.depth_diff_threshold = 0.2   # 8cm closer = new object
         self.min_object_pixels = 50       # Need 50+ pixels for detection
         self.max_object_pixels = 3000      # But not more than 3000
         
         # Distance filter
-        self.MIN_DEPTH = 0.15
+        self.MIN_DEPTH = 0.3
         self.MAX_DEPTH = 2.0
         
         print("[DETECT] === BACKGROUND SUBTRACTION DETECTOR ===")

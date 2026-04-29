@@ -71,4 +71,4 @@ class SimSettings:
     KALMAN_R = 0.004  # measurement noise
 
     # ── Predictor ─────────────────────────────────────────────────
-    MIN_POINTS_TO_PREDICT = 2   # frames before prediction starts
+    MIN_POINTS_TO_PREDICT = 4   # frames before prediction starts
